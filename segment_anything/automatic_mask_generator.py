@@ -7,6 +7,7 @@
 import numpy as np
 import torch
 from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
+import time
 
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -160,8 +161,12 @@ class SamAutomaticMaskGenerator:
         """
 
         # Generate masks
+        time_start = time.time()
         mask_data = self._generate_masks(image)
-
+        time_end = time.time()
+        print(f"_generate_masks time cost {time_end - time_start}" , "s")
+        
+    
         # Filter small disconnected regions and holes in masks
         if self.min_mask_region_area > 0:
             mask_data = self.postprocess_small_regions(
@@ -196,10 +201,11 @@ class SamAutomaticMaskGenerator:
 
     def _generate_masks(self, image: np.ndarray) -> MaskData:
         orig_size = image.shape[:2]
+
         crop_boxes, layer_idxs = generate_crop_boxes(
             orig_size, self.crop_n_layers, self.crop_overlap_ratio
         )
-
+        
         # Iterate over image crops
         data = MaskData()
         for crop_box, layer_idx in zip(crop_boxes, layer_idxs):

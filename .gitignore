@@ -42,5 +42,5 @@ _darcs
 data/
 
 # from offical
-assets/
-notebooks/
+# assets/
+# notebooks/

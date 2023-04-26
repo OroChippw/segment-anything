@@ -11,6 +11,7 @@ from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 import argparse
 import json
 import os
+import time
 from typing import Any, Dict, List
 
 parser = argparse.ArgumentParser(
@@ -52,7 +53,7 @@ parser.add_argument(
     help="The path to the SAM checkpoint to use for mask generation.",
 )
 
-parser.add_argument("--device", type=str, default="cuda", help="The device to run generation on.")
+parser.add_argument("--device", type=str, default="cpu", help="The device to run generation on.")
 
 parser.add_argument(
     "--convert-to-rle",
@@ -198,6 +199,7 @@ def main(args: argparse.Namespace) -> None:
     _ = sam.to(device=args.device)
     output_mode = "coco_rle" if args.convert_to_rle else "binary_mask"
     amg_kwargs = get_amg_kwargs(args)
+    print("Building SamAutomaticMaskGenerator...")
     generator = SamAutomaticMaskGenerator(sam, output_mode=output_mode, **amg_kwargs)
 
     if not os.path.isdir(args.input):
@@ -209,7 +211,7 @@ def main(args: argparse.Namespace) -> None:
         targets = [os.path.join(args.input, f) for f in targets]
 
     os.makedirs(args.output, exist_ok=True)
-
+    time_total = 0
     for t in targets:
         print(f"Processing '{t}'...")
         image = cv2.imread(t)
@@ -217,9 +219,15 @@ def main(args: argparse.Namespace) -> None:
             print(f"Could not load '{t}' as an image, skipping...")
             continue
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
+        print("Generate mask...")
+        time_start = time.time()
         masks = generator.generate(image)
-
+        time_end = time.time()
+        print("Generate mask...")
+        time_cost = time_end - time_start
+        print(f"Generate mask time cost {time_cost}" , "s")
+        time_total += time_cost 
+        
         base = os.path.basename(t)
         base = os.path.splitext(base)[0]
         save_base = os.path.join(args.output, base)
@@ -230,6 +238,8 @@ def main(args: argparse.Namespace) -> None:
             save_file = save_base + ".json"
             with open(save_file, "w") as f:
                 json.dump(masks, f)
+
+    print(f"Mean cost : {time_total / len(targets)}")
     print("Done!")
 
 
