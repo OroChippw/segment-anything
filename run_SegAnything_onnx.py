@@ -16,9 +16,10 @@ from segment_anything.utils.onnx import SamOnnxModel
 
 # ----------- CONFIG START ----------- #
 SUPPORTED = ["png" , "jpg" , "jpeg"]
-MODEL_TYPE = "vit_l"
-USE_SINGLEMASK = True
-TORCH_MODEL_PATH = f"model_weights/sam_vit_l_0b3195.pth"
+MODEL_TYPE = "vit_b"
+USE_SINGLEMASK = False
+# MODEL_LIST = [sam_vit_b_01ec64  sam_vit_l_0b3195 sam_vit_h_4b8939]
+TORCH_MODEL_PATH = f"model_weights/sam_vit_b_01ec64.pth"
 
 if USE_SINGLEMASK:
     ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}_singlemask.onnx"
@@ -26,7 +27,7 @@ else:
     ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}.onnx"
 
 ONNX_MODEL_QUANTIZED_PATH = f"model_weights/sam_quantized_{MODEL_TYPE}.onnx"
-DEVICE = "cuda"
+DEVICE = "cpu"
 SHOW = False
 time_total = 0.0
 
@@ -41,7 +42,7 @@ def show_mask(masks, ax):
             mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
             ax.imshow(mask_image)
     else:
-        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+        mask_image = masks.reshape(h, w, 1) * color.reshape(1, 1, -1)
         ax.imshow(mask_image)
     
 def show_points(coords, labels, ax, marker_size=375):
@@ -213,8 +214,11 @@ class SAMOnnxRunner():
         
         
 def main():
-    image_dir = r"E:\OroChiLab\Data\NailsJpgfile\images"
-    save_dir = r"data//result"
+    image_dir = r"E:\OroChiLab\Data\NailsJpgfile\images\test"
+    if USE_SINGLEMASK:
+        save_dir = r"data//result//singlemask"
+    else:
+        save_dir = r"data//result//multimask"
     
     # Get Input Information
     input_point = np.array([[1156, 550]])
@@ -249,9 +253,9 @@ def main():
         save_masks(masks , save_path , filename)
         if SHOW:
             plt.figure(figsize=(10,10))
+            srcImg = cv2.cvtColor(srcImg , cv2.COLOR_BGR2RGB)
             plt.imshow(srcImg)
             show_mask(masks, plt.gca())
-            
             show_points(input_point, input_label, plt.gca())
             plt.axis('off')
             plt.show() 

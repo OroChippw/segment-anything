@@ -9,5 +9,8 @@ python scripts/amg.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_w
 python scripts/amg.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_weights\\sam_vit_b_01ec64.pth --model-type vit_b --input E:\\OroChiLab\\Data\\NailsJpgfile\\images --output E:\\OroChiLab\\segment-anything-main\\data\\output_nails
 
 
-# export model shell
+# export Decoder model shell
 python scripts/export_onnx_model.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_weights\\sam_vit_h_4b8939.pth --model-type vit_h --output onnx_models\\sam_vit_h.onnx --return-single-mask
+
+# export Encoder model  and Decoder model shell TODO
+python scripts/export_onnx_model.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_weights\\sam_vit_h_4b8939.pth --model-type vit_h --output onnx_models\\sam_vit_h_decoder.onnx --encoder-output onnx_models\\sam_vit_h_encoder.onnx --encoder-data-file onnx_models\\sam_vit_h_encoder_data.onnx --return-single-mask
