@@ -15,19 +15,34 @@ from segment_anything import sam_model_registry , SamPredictor
 from segment_anything.utils.onnx import SamOnnxModel
 
 # ----------- CONFIG START ----------- #
-MODEL_TYPE = "vit_b"
+SUPPORTED = ["png" , "jpg" , "jpeg"]
+MODEL_TYPE = "vit_l"
+USE_SINGLEMASK = True
+TORCH_MODEL_PATH = f"model_weights/sam_vit_l_0b3195.pth"
 
-TORCH_MODEL_PATH = f"model_weights/sam_vit_b_01ec64.pth"
-ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}.onnx"
+if USE_SINGLEMASK:
+    ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}_singlemask.onnx"
+else:
+    ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}.onnx"
+
 ONNX_MODEL_QUANTIZED_PATH = f"model_weights/sam_quantized_{MODEL_TYPE}.onnx"
-DEVICE = "cpu"
+DEVICE = "cuda"
+SHOW = False
+time_total = 0.0
+
 # ----------- CONFIG END ------------- #
 
-def show_mask(mask, ax):
+# ----------- SHOW RESULT FUNC START ------------- #
+def show_mask(masks, ax):
     color = np.array([30/255, 144/255, 255/255, 0.6])
-    h, w = mask.shape[-2:]
-    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-    ax.imshow(mask_image)
+    h, w = masks.shape[-2:]
+    if not USE_SINGLEMASK:
+        for i, mask in enumerate(masks[0]):
+            mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+            ax.imshow(mask_image)
+    else:
+        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+        ax.imshow(mask_image)
     
 def show_points(coords, labels, ax, marker_size=375):
     pos_points = coords[labels==1]
@@ -38,7 +53,28 @@ def show_points(coords, labels, ax, marker_size=375):
 def show_box(box, ax):
     x0, y0 = box[0], box[1]
     w, h = box[2] - box[0], box[3] - box[1]
-    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2))   
+    ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2))  
+# ----------- SHOW RESULT FUNC END ------------- #
+
+# ----------- SAVE MASK FUNC START ------------- #
+def save_masks(masks , savepath , filename):
+    h, w = masks.shape[-2:]
+    index = 0
+    if not USE_SINGLEMASK:
+        for idx, mask in enumerate(masks[0]):
+            mask_image = mask.reshape(h, w, 1) * 255
+            filename_ = filename + f"_{idx}.png"
+            cv2.imwrite(osp.join(savepath , filename_) , mask_image)
+            print(f"Save as : {osp.join(savepath , filename_)}")
+            index += 1
+    else:
+        mask_image = masks.reshape(h, w, 1) * 255
+        cv2.imwrite(osp.join(savepath , filename + ".png") , mask_image)
+        print(f"Save as : {osp.join(savepath , filename)}")
+
+# ----------- SAVE MASK FUNC END ------------- #
+
+
 
 class SAMOnnxRunner():
     def __init__(self , torch_model_path , onnx_model_path , model_type ,  device = "cuda") -> None:
@@ -112,9 +148,8 @@ class SAMOnnxRunner():
             print("Finish quantize onnx model...")
             
     # --------------------------------- #       
-    def _preprocess(self , srcImage_path , input_point , input_label):
-        image = cv2.imread(srcImage_path)
-        image = cv2.cvtColor(image , cv2.COLOR_BGR2RGB)
+    def _preprocess(self , srcImage , input_point , input_label):
+        image = cv2.cvtColor(srcImage , cv2.COLOR_BGR2RGB)
         
         # Add a batch index, concatenate a padding point, and transform.
         onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
@@ -138,18 +173,25 @@ class SAMOnnxRunner():
     
     # --------------------------------- #       
     def _inference(self , image , ort_inputs):
-        self.predictor.set_image(image)
-        image_embedding = self.predictor.get_image_embedding().cpu().numpy()
-        ort_inputs["image_embeddings"] = image_embedding
-        
         # Build session 
         self.ort_session = ort.InferenceSession(self.onnx_path)
         
+        time_start = time.time()
+        self.predictor.set_image(image)
+        image_embedding = self.predictor.get_image_embedding().cpu().numpy()
+        ort_inputs["image_embeddings"] = image_embedding
+
         # Predict a mask and threshold it.
-        masks, _, low_res_logits = self.ort_session.run(None, ort_inputs)
+        masks , iou_predictions , low_res_logits = self.ort_session.run(None, ort_inputs)
+        time_end = time.time()
+        time_cost = time_end - time_start
+        global time_total
+        time_total += time_cost
+        print(f"Generate mask time cost {time_cost}" , "s")
+        
         masks = masks > self.predictor.model.mask_threshold
         
-        return masks
+        return masks , iou_predictions
     
     # --------------------------------- #       
     def _postprocess(self):
@@ -157,45 +199,65 @@ class SAMOnnxRunner():
         pass
     
     # --------------------------------- #       
-    def _inference_img(self , image_path , point , label):
+    def _inference_img(self , image , point , label):
         if self.buildOnnx:
-            print("buildONNX...")
+            print("Building ONNX...")
             self._export_onnx_model(self.onnx_path)
         self.model.to(self.device)
         self.predictor = SamPredictor(self.model)
         
-        img , ort_inputs= self._preprocess(image_path , point , label)
+        img , ort_inputs= self._preprocess(image , point , label)
         masks = self._inference(img , ort_inputs)
         self._postprocess()
         return masks
         
         
-    
 def main():
+    image_dir = r"E:\OroChiLab\Data\NailsJpgfile\images"
+    save_dir = r"data//result"
+    
     # Get Input Information
-    input_point = np.array([[500, 375]])
+    input_point = np.array([[1156, 550]])
     input_label = np.array([1])
-    image_path = r"notebooks//images//truck.jpg"
-    assert osp.exists(image_path) , \
-        f"{image_path} is not exists!"
-        
-    # Build SAMOnnxRunner
+    
+     # Build SAMOnnxRunner
     sam_onnx_runner = SAMOnnxRunner(TORCH_MODEL_PATH  , ONNX_MODEL_PATH , MODEL_TYPE , DEVICE)
     
-    # Export vit onnx
+    # Export vit from pytorch to onnx
     # sam_onnx_runner._export_onnx_model(onnx_save_path = ONNX_MODEL_PATH)
     
-    # Inference by onnx
-    masks = sam_onnx_runner._inference_img(image_path , input_point , input_label)
+    file_counter = 0
     
-    print(masks.shape)
+    for image_file in os.listdir(image_dir):
+        file_path = osp.join(image_dir , image_file)
+        print(f"Processing : {file_path}")
+        filename = osp.basename(file_path).split(".")[0]
+        if file_path.split(".")[-1] not in SUPPORTED:
+            print(f"Unsupport {file_path}")
+            continue
+        srcImg = cv2.imread(file_path)
+
+        # Inference by onnx
+        masks , iou_predictions = sam_onnx_runner._inference_img(srcImg , input_point , input_label)
+        file_counter += 1
+        print("masks shape : " , masks.shape)
+        print(f"iou_predictions : {iou_predictions} , shape : {iou_predictions.shape}")
+
+        save_path = osp.join(save_dir , filename)
+        if not osp.exists(save_path):
+            os.mkdir(save_path)
+        save_masks(masks , save_path , filename)
+        if SHOW:
+            plt.figure(figsize=(10,10))
+            plt.imshow(srcImg)
+            show_mask(masks, plt.gca())
+            
+            show_points(input_point, input_label, plt.gca())
+            plt.axis('off')
+            plt.show() 
     
-    plt.figure(figsize=(10,10))
-    plt.imshow(cv2.imread(image_path))
-    show_mask(masks, plt.gca())
-    show_points(input_point, input_label, plt.gca())
-    plt.axis('off')
-    plt.show() 
+    print(f"file_counter : " , file_counter)
+    print(f"Mean cost time : {time_total / file_counter}" , "s")
     
 if __name__ == "__main__":
     main()

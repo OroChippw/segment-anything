@@ -10,4 +10,4 @@ python scripts/amg.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_w
 
 
 # export model shell
-python scripts/export_onnx_model.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_weights\\sam_vit_l_0b3195.pth --model-type vit_l --output onnx_models\\sam_vit_l.onnx
+python scripts/export_onnx_model.py --checkpoint E:\\OroChiLab\\segment-anything-main\\model_weights\\sam_vit_h_4b8939.pth --model-type vit_h --output onnx_models\\sam_vit_h.onnx --return-single-mask
