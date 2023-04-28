@@ -44,6 +44,7 @@ parser.add_argument(
 parser.add_argument(
     "--encoder-data-file",
     type=str,
+    # should be given a *.bin
     help="The filename to save the external data for encoder ONNX model to. Use this if the encoder model is too large to be saved in a single file.",
 )
 
