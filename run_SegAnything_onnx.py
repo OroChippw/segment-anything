@@ -16,10 +16,10 @@ from segment_anything.utils.onnx import SamOnnxModel
 
 # ----------- CONFIG START ----------- #
 SUPPORTED = ["png" , "jpg" , "jpeg"]
-MODEL_TYPE = "vit_b"
-USE_SINGLEMASK = False
+MODEL_TYPE = "vit_l"
+USE_SINGLEMASK = True
 # MODEL_LIST = [sam_vit_b_01ec64  sam_vit_l_0b3195 sam_vit_h_4b8939]
-TORCH_MODEL_PATH = f"model_weights/sam_vit_b_01ec64.pth"
+TORCH_MODEL_PATH = f"model_weights/sam_vit_l_0b3195.pth"
 
 if USE_SINGLEMASK:
     ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}_singlemask.onnx"
@@ -28,8 +28,10 @@ else:
 
 ONNX_MODEL_QUANTIZED_PATH = f"model_weights/sam_quantized_{MODEL_TYPE}.onnx"
 DEVICE = "cpu"
-SHOW = False
+SHOW = True
 time_total = 0.0
+
+USE_BOX = True
 
 # ----------- CONFIG END ------------- #
 
@@ -54,7 +56,9 @@ def show_points(coords, labels, ax, marker_size=375):
 def show_box(box, ax):
     x0, y0 = box[0], box[1]
     w, h = box[2] - box[0], box[3] - box[1]
+    # print(f"w : {w} , f : {h}")
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0,0,0,0), lw=2))  
+    
 # ----------- SHOW RESULT FUNC END ------------- #
 
 # ----------- SAVE MASK FUNC START ------------- #
@@ -70,8 +74,9 @@ def save_masks(masks , savepath , filename):
             index += 1
     else:
         mask_image = masks.reshape(h, w, 1) * 255
-        cv2.imwrite(osp.join(savepath , filename + ".png") , mask_image)
-        print(f"Save as : {osp.join(savepath , filename)}")
+        filename_ = filename + ".png"
+        cv2.imwrite(osp.join(savepath , filename_) , mask_image)
+        print(f"Save as : {osp.join(savepath , filename_)}")
 
 # ----------- SAVE MASK FUNC END ------------- #
 
@@ -149,13 +154,21 @@ class SAMOnnxRunner():
             print("Finish quantize onnx model...")
             
     # --------------------------------- #       
-    def _preprocess(self , srcImage , input_point , input_label):
+    def _preprocess(self , srcImage , input_point , input_label , input_box = None):
         image = cv2.cvtColor(srcImage , cv2.COLOR_BGR2RGB)
         
         # Add a batch index, concatenate a padding point, and transform.
-        onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
-        onnx_label = np.concatenate([input_label, np.array([-1])], axis=0)[None, :].astype(np.float32)
+        if USE_BOX:
+            onnx_box_coords = input_box.reshape(2,2)
+            onnx_box_labels = np.array([2,3])
+            onnx_coord = np.concatenate([input_point, onnx_box_coords], axis=0)[None, :, :]
+            onnx_label = np.concatenate([input_label, onnx_box_labels], axis=0)[None, :].astype(np.float32)
+        else :
+            onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
+            onnx_label = np.concatenate([input_label, np.array([-1])], axis=0)[None, :].astype(np.float32)
+        
         onnx_coord = self.predictor.transform.apply_coords(onnx_coord , image.shape[:2]).astype(np.float32)
+        
         
         # Create an empty mask input and an indicator for no mask.
         onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
@@ -200,14 +213,14 @@ class SAMOnnxRunner():
         pass
     
     # --------------------------------- #       
-    def _inference_img(self , image , point , label):
+    def _inference_img(self , image , point , label , box = None):
         if self.buildOnnx:
             print("Building ONNX...")
             self._export_onnx_model(self.onnx_path)
         self.model.to(self.device)
         self.predictor = SamPredictor(self.model)
         
-        img , ort_inputs= self._preprocess(image , point , label)
+        img , ort_inputs = self._preprocess(image , point , label , box)
         masks = self._inference(img , ort_inputs)
         self._postprocess()
         return masks
@@ -221,8 +234,10 @@ def main():
         save_dir = r"data//result//multimask"
     
     # Get Input Information
-    input_point = np.array([[1156, 550]])
+    input_point = np.array([[993, 540]])
     input_label = np.array([1])
+    if USE_BOX :
+        input_box = np.array([771,236,1186,706]) # x1 ,y1 , x2 , y2左上角点及右下角点
     
      # Build SAMOnnxRunner
     sam_onnx_runner = SAMOnnxRunner(TORCH_MODEL_PATH  , ONNX_MODEL_PATH , MODEL_TYPE , DEVICE)
@@ -242,7 +257,7 @@ def main():
         srcImg = cv2.imread(file_path)
 
         # Inference by onnx
-        masks , iou_predictions = sam_onnx_runner._inference_img(srcImg , input_point , input_label)
+        masks , iou_predictions = sam_onnx_runner._inference_img(srcImg , input_point , input_label , input_box)
         file_counter += 1
         print("masks shape : " , masks.shape)
         print(f"iou_predictions : {iou_predictions} , shape : {iou_predictions.shape}")
@@ -255,7 +270,9 @@ def main():
             plt.figure(figsize=(10,10))
             srcImg = cv2.cvtColor(srcImg , cv2.COLOR_BGR2RGB)
             plt.imshow(srcImg)
-            show_mask(masks, plt.gca())
+            # show_mask(masks, plt.gca())
+            if USE_BOX:
+                show_box(input_box, plt.gca())
             show_points(input_point, input_label, plt.gca())
             plt.axis('off')
             plt.show() 
