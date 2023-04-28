@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import torch
-from torch.nn import functools as F
+from torch.nn import functional as F
 import onnxruntime as ort
 
 from segment_anything.utils.transforms import ResizeLongestSide
@@ -87,9 +87,11 @@ class SAMOnnxRunner():
         self.decoder_path = decoder_path
         self.model_type = model_type
         self.device = device
+        self.transform = None
         self.init_encoder = False
         self.embedding = None
         self.mask_threshold = 0.0
+        
         
         assert osp.exists(self.encoder_path) , f"{encoder_path} is not exists"
         assert osp.exists(self.decoder_path) , f"{decoder_path} is not exists"
@@ -110,8 +112,8 @@ class SAMOnnxRunner():
             # => Preprocess for Encoder
             # Meta AI training encoder with a resolution of 1024*024
             encoder_input_size = 1024
-            transform = ResizeLongestSide(encoder_input_size)
-            input_img = transform.apply_image(image)
+            self.transform = ResizeLongestSide(encoder_input_size)
+            input_img = self.transform.apply_image(image)
             input_img_torch = torch.as_tensor(input_img , device=self.device)
             input_img_torch = input_img_torch.permute(2,0,1).contiguous()[None , : , : ,:]
             pixel_mean = torch.Tensor([123.675,116.28,103.53]).view(-1,1,1)
@@ -138,7 +140,7 @@ class SAMOnnxRunner():
         # Add a batch index, concatenate a padding point, and transform.
         onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
         onnx_label = np.concatenate([input_label, np.array([-1])], axis=0)[None, :].astype(np.float32)
-        onnx_coord = self.predictor.transform.apply_coords(onnx_coord , image.shape[:2]).astype(np.float32)
+        onnx_coord = self.transform.apply_coords(onnx_coord , image.shape[:2]).astype(np.float32)
         
         # Create an empty mask input and an indicator for no mask.
         onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
@@ -197,7 +199,7 @@ class SAMOnnxRunner():
             self.init_encoder = True
         
         img , ort_inputs= self._preprocess_decoder(image , point , label)
-        masks = self._inference_decoder(img , ort_inputs)
+        masks = self._inference_decoder(ort_inputs)
         self._postprocess()
         return masks
         
@@ -208,6 +210,8 @@ def main():
         save_dir = r"data//result//singlemask"
     else:
         save_dir = r"data//result//multimask"
+    
+    save_dir = r"data//result//encoder_test"
     
     # Get Input Information
     input_point = np.array([[1156, 550]])
