@@ -18,11 +18,14 @@ TORCH_MODEL_PATH = f"model_weights/sam_vit_b_01ec64.pth"
 
 ENCODER_ONNX_MODEL_PATH = f"model_weights/withEncoder/{MODEL_TYPE}/encoder.onnx"
 
-USE_SINGLEMASK = False
+USE_SINGLEMASK = True
 if USE_SINGLEMASK:
     DECODER_ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}_singlemask.onnx"
+    
 else:
-    DECODER_ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}.onnx"
+    # DECODER_ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}.onnx"
+    DECODER_ONNX_MODEL_PATH = f"model_weights/withEncoder/{MODEL_TYPE}/decoder.onnx"
+    
     
 USE_QUANTIZED = False
 if USE_QUANTIZED:
@@ -34,6 +37,8 @@ if USE_QUANTIZED:
 DEVICE = "cpu"
 SHOW = False
 time_total = 0.0
+
+USE_BOX = True
 
 # ----------- CONFIG END ------------- #
 
@@ -110,7 +115,7 @@ class SAMOnnxRunner():
     def _preprocess_encoder(self , image):
         try:
             # => Preprocess for Encoder
-            # Meta AI training encoder with a resolution of 1024*024
+            # Meta AI training encoder with a resolution of 1024*1024
             encoder_input_size = 1024
             self.transform = ResizeLongestSide(encoder_input_size)
             input_img = self.transform.apply_image(image)
@@ -122,7 +127,9 @@ class SAMOnnxRunner():
             h , w = x.shape[-2:]
             padh = encoder_input_size - h
             padw = encoder_input_size - w
-            x = F.pad(x , (0 , padw , 0 , padh))
+            # F.pad (左边填充数， 右边填充数， 上边填充数， 下边填充数)
+            # 前两个参数对最后一个维度有效，后两个参数对倒数第二维有效
+            x = F.pad(x , (0 , padw , 0 , padh)) 
             x = x.numpy()
             
         except:
@@ -134,17 +141,37 @@ class SAMOnnxRunner():
         
         return encoder_inputs
         
-    def _preprocess_decoder(self , image , input_point , input_label):
+    def _preprocess_decoder(self , image , input_point , input_label , input_box = None):
         
         # => Preprocess for Decoder
         # Add a batch index, concatenate a padding point, and transform.
-        onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
-        onnx_label = np.concatenate([input_label, np.array([-1])], axis=0)[None, :].astype(np.float32)
+        temp = input_point
+       
+        temp = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)
+       
+        print(np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :].shape)
+        
+        if USE_BOX:
+            onnx_box_coords = input_box.reshape(2,2)
+            onnx_box_labels = np.array([2,3])
+            onnx_coord = np.concatenate([input_point, onnx_box_coords], axis=0)[None, :, :]
+            onnx_label = np.concatenate([input_label, onnx_box_labels], axis=0)[None, :].astype(np.float32)
+        else :
+            onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
+            onnx_label = np.concatenate([input_label, np.array([-1])], axis=0)[None, :].astype(np.float32)
         onnx_coord = self.transform.apply_coords(onnx_coord , image.shape[:2]).astype(np.float32)
         
         # Create an empty mask input and an indicator for no mask.
         onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
         onnx_has_mask_input = np.zeros(1, dtype=np.float32)
+        
+        print(np.unique(onnx_mask_input))
+        print("onnx_has_mask_input : " , np.unique(onnx_has_mask_input))
+        
+        orig_im_size = np.array(image.shape[:2], dtype=np.float32)
+        print("orig_im_size : " , orig_im_size)
+        print("orig_im_size shape : " , orig_im_size.shape)
+        
         
         # Package the inputs to run in the onnx model
         decoder_inputs = {
@@ -172,6 +199,14 @@ class SAMOnnxRunner():
         time_start = time.time()
         # Predict a mask and threshold it.
         masks , iou_predictions , low_res_logits = self.decoder_session.run(None, ort_inputs)
+        
+        print("#----------------------------#")
+        print("masks.shape : " , masks.shape)
+        print("iou_predictions.shape : " , iou_predictions.shape)
+        print("low_res_logits.shape : " , low_res_logits.shape)
+        print("#----------------------------#")
+        
+        
         time_end = time.time()
         time_cost = time_end - time_start
         print(f"Decoder generate mask cost time : {time_cost}" , "s")
@@ -181,7 +216,7 @@ class SAMOnnxRunner():
         global time_total
         time_total += time_cost
         
-        return masks , iou_predictions
+        return masks , iou_predictions , low_res_logits
     
     # --------------------------------- #       
     def _postprocess(self):
@@ -189,7 +224,7 @@ class SAMOnnxRunner():
         pass
     
     # --------------------------------- #       
-    def _inference_img(self , srcImage , point , label):
+    def _inference_img(self , srcImage , point , label , box = None):
         image = self._preprocess_image(srcImage)
         
         if not self.init_encoder:
@@ -198,10 +233,10 @@ class SAMOnnxRunner():
             self.image_embedding = encoder_outputs[0]
             self.init_encoder = True
         
-        img , ort_inputs= self._preprocess_decoder(image , point , label)
-        masks = self._inference_decoder(ort_inputs)
+        img , ort_inputs= self._preprocess_decoder(image , point , label , box)
+        masks , iou_predictions , low_res_logits = self._inference_decoder(ort_inputs)
         self._postprocess()
-        return masks
+        return masks , iou_predictions , low_res_logits
         
         
 def main():
@@ -216,6 +251,8 @@ def main():
     # Get Input Information
     input_point = np.array([[1156, 550]])
     input_label = np.array([1])
+    if USE_BOX :
+        input_box = np.array([771,236,1186,706]) # x1 ,y1 , x2 , y2左上角点及右下角点
     
      # Build SAMOnnxRunner
     sam_onnx_runner = SAMOnnxRunner(ENCODER_ONNX_MODEL_PATH , DECODER_ONNX_MODEL_PATH , MODEL_TYPE , DEVICE)
@@ -232,7 +269,7 @@ def main():
         srcImg = cv2.imread(file_path)
 
         # Inference by onnx
-        masks , iou_predictions = sam_onnx_runner._inference_img(srcImg , input_point , input_label)
+        masks , iou_predictions , low_res_logits = sam_onnx_runner._inference_img(srcImg , input_point , input_label , input_box)
         file_counter += 1
         print("masks shape : " , masks.shape)
         print(f"iou_predictions : {iou_predictions} , shape : {iou_predictions.shape}")
@@ -241,6 +278,8 @@ def main():
         if not osp.exists(save_path):
             os.mkdir(save_path)
         save_masks(masks , save_path , filename)
+        # save_masks(low_res_logits , save_path , filename)
+        
         if SHOW:
             plt.figure(figsize=(10,10))
             srcImg = cv2.cvtColor(srcImg , cv2.COLOR_BGR2RGB)

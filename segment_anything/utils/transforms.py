@@ -40,8 +40,10 @@ class ResizeLongestSide:
             original_size[0], original_size[1], self.target_length
         )
         coords = deepcopy(coords).astype(float)
+        
         coords[..., 0] = coords[..., 0] * (new_w / old_w)
         coords[..., 1] = coords[..., 1] * (new_h / old_h)
+        
         return coords
 
     def apply_boxes(self, boxes: np.ndarray, original_size: Tuple[int, ...]) -> np.ndarray:
