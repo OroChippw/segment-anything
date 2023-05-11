@@ -149,7 +149,6 @@ class SAMOnnxRunner():
        
         temp = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)
        
-        print(np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :].shape)
         
         if USE_BOX:
             onnx_box_coords = input_box.reshape(2,2)
@@ -164,14 +163,7 @@ class SAMOnnxRunner():
         # Create an empty mask input and an indicator for no mask.
         onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
         onnx_has_mask_input = np.zeros(1, dtype=np.float32)
-        
-        print(np.unique(onnx_mask_input))
-        print("onnx_has_mask_input : " , np.unique(onnx_has_mask_input))
-        
         orig_im_size = np.array(image.shape[:2], dtype=np.float32)
-        print("orig_im_size : " , orig_im_size)
-        print("orig_im_size shape : " , orig_im_size.shape)
-        
         
         # Package the inputs to run in the onnx model
         decoder_inputs = {
@@ -199,12 +191,6 @@ class SAMOnnxRunner():
         time_start = time.time()
         # Predict a mask and threshold it.
         masks , iou_predictions , low_res_logits = self.decoder_session.run(None, ort_inputs)
-        
-        print("#----------------------------#")
-        print("masks.shape : " , masks.shape)
-        print("iou_predictions.shape : " , iou_predictions.shape)
-        print("low_res_logits.shape : " , low_res_logits.shape)
-        print("#----------------------------#")
         
         
         time_end = time.time()
@@ -252,7 +238,7 @@ def main():
     input_point = np.array([[1156, 550]])
     input_label = np.array([1])
     if USE_BOX :
-        input_box = np.array([771,236,1186,706]) # x1 ,y1 , x2 , y2左上角点及右下角点
+        input_box = np.array([773,187,1465,896]) # x1 ,y1 , x2 , y2左上角点及右下角点
     
      # Build SAMOnnxRunner
     sam_onnx_runner = SAMOnnxRunner(ENCODER_ONNX_MODEL_PATH , DECODER_ONNX_MODEL_PATH , MODEL_TYPE , DEVICE)
@@ -269,7 +255,11 @@ def main():
         srcImg = cv2.imread(file_path)
 
         # Inference by onnx
-        masks , iou_predictions , low_res_logits = sam_onnx_runner._inference_img(srcImg , input_point , input_label , input_box)
+        if USE_BOX:
+            masks , iou_predictions , low_res_logits = sam_onnx_runner._inference_img(srcImg , input_point , input_label , input_box)
+        else :
+            masks , iou_predictions , low_res_logits = sam_onnx_runner._inference_img(srcImg , input_point , input_label)
+            
         file_counter += 1
         print("masks shape : " , masks.shape)
         print(f"iou_predictions : {iou_predictions} , shape : {iou_predictions.shape}")
