@@ -18,7 +18,7 @@ TORCH_MODEL_PATH = f"model_weights/sam_vit_b_01ec64.pth"
 
 ENCODER_ONNX_MODEL_PATH = f"model_weights/withEncoder/{MODEL_TYPE}/encoder.onnx"
 
-USE_SINGLEMASK = True
+USE_SINGLEMASK = False
 if USE_SINGLEMASK:
     DECODER_ONNX_MODEL_PATH = f"model_weights/sam_{MODEL_TYPE}_singlemask.onnx"
     
@@ -153,12 +153,23 @@ class SAMOnnxRunner():
         if USE_BOX:
             onnx_box_coords = input_box.reshape(2,2)
             onnx_box_labels = np.array([2,3])
+            print("onnx_box_coords : " , onnx_box_coords)
+            print("onnx_box_coords shape : " ,onnx_box_coords.shape)
+            
+            print("onnx_box_labels : " , onnx_box_labels)
+            print("onnx_box_labels shape : " ,onnx_box_labels.shape)
             onnx_coord = np.concatenate([input_point, onnx_box_coords], axis=0)[None, :, :]
             onnx_label = np.concatenate([input_label, onnx_box_labels], axis=0)[None, :].astype(np.float32)
+            print("onnx_coord shape : " ,onnx_coord.shape)
+            print("onnx_label shape : " ,onnx_label.shape)
+            
+            
         else :
             onnx_coord = np.concatenate([input_point, np.array([[0.0, 0.0]])], axis=0)[None, :, :]
             onnx_label = np.concatenate([input_label, np.array([-1])], axis=0)[None, :].astype(np.float32)
+        
         onnx_coord = self.transform.apply_coords(onnx_coord , image.shape[:2]).astype(np.float32)
+        print("apply coords : " , onnx_coord)
         
         # Create an empty mask input and an indicator for no mask.
         onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
