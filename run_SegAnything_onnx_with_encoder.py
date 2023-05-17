@@ -153,15 +153,15 @@ class SAMOnnxRunner():
         if USE_BOX:
             onnx_box_coords = input_box.reshape(2,2)
             onnx_box_labels = np.array([2,3])
-            print("onnx_box_coords : " , onnx_box_coords)
-            print("onnx_box_coords shape : " ,onnx_box_coords.shape)
+            # print("onnx_box_coords : " , onnx_box_coords)
+            # print("onnx_box_coords shape : " ,onnx_box_coords.shape)
             
-            print("onnx_box_labels : " , onnx_box_labels)
-            print("onnx_box_labels shape : " ,onnx_box_labels.shape)
+            # print("onnx_box_labels : " , onnx_box_labels)
+            # print("onnx_box_labels shape : " ,onnx_box_labels.shape)
             onnx_coord = np.concatenate([input_point, onnx_box_coords], axis=0)[None, :, :]
             onnx_label = np.concatenate([input_label, onnx_box_labels], axis=0)[None, :].astype(np.float32)
-            print("onnx_coord shape : " ,onnx_coord.shape)
-            print("onnx_label shape : " ,onnx_label.shape)
+            # print("onnx_coord shape : " ,onnx_coord.shape)
+            # print("onnx_label shape : " ,onnx_label.shape)
             
             
         else :
